@@ -1,0 +1,6 @@
+bin/
+*.bin
+*_plain.txt
+*_cipher_only.bin
+*_iv.bin
+plain.txt
