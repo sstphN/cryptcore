@@ -1,4 +1,4 @@
-# CLI‑утилита на Go для шифрования и расшифрования файлов с помощью AES‑128 в режимах ECB, CBC, CFB, OFB и CTR.
+# CLI-утилита на Go для шифрования/расшифрования файлов с AES-128 (ECB, CBC, CFB, OFB, CTR) и генерацией криптостойких ключей/IV.
 
 ## Сборка
 ```
@@ -9,6 +9,7 @@ go build -o bin/cryptocore ./cmd/cryptocore
 
 - Go 1.21+
 - OpenSSL (для interoperability‑тестов)
+- NIST STS (для тестов случайности)
 
 ## Структура проекта
 ```
@@ -19,25 +20,21 @@ internal/fs/ fileio.go # файловый ввод/вывод
 go.mod
 ```
 ## Использование
-```
-bin/cryptocore
---algorithm aes
---mode <ecb|cbc|cfb|ofb|ctr>
---encrypt|--decrypt
---key <32-hex-символа>
---input <входной_файл>
-[--output <выходной_файл>]
-[--iv <32-hex-символа>]
-```
-## Пример
-```
-KEY=000102030405060708090a0b0c0d0e0f
 
+### Шифрование (с генерацией ключа)
+
+Если `--key` не указан, ключ генерируется автоматически и выводится в stdout.
+```
 bin/cryptocore --algorithm aes --mode cbc --encrypt
---key $KEY --input plain.txt --output cbc_cipher.bin
+--input plain.txt --output cbc_cipher.bin
+```
+Вывод: `[INFO] Generated random key: <ключ>`
 
+### Расшифрование (ключ обязателен)
+```
 bin/cryptocore --algorithm aes --mode cbc --decrypt
---key $KEY --input cbc_cipher.bin --output cbc_plain.txt
+--key <ключ_из_stdout>
+--input cbc_cipher.bin --output plain.txt
 ```
 
 ## Тесты
@@ -55,6 +52,35 @@ bin/cryptocore --algorithm aes --mode $MODE --decrypt
 
 echo "mode=$MODE"; diff plain.txt ${MODE}_plain.txt || echo "MISMATCH in $MODE"
 done
+
+```
+### Uniqueness Test
+
+Проверка уникальности 1000 сгенерированных ключей.
+```
+go run ./cmd/test-uniqueness/main.go
+```
+
+### NIST Statistical Test Suite
+
+1.  **Сгенерировать данные для теста:**
+
+    ```
+    go run ./cmd/generate-nist-data/main.go
+    ```
+    Это создаст файл `nist_test_data.bin` размером 10 МБ.
+
+2.  **Запустить NIST STS:**
+    - Скачайте и соберите [NIST STS](https://csrc.nist.gov/projects/random-bit-generation/documentation-and-software).
+    - Запустите `assess` и в интерактивном режиме укажите файл `nist_test_data.bin`.
+
+    ```
+    # (из папки с NIST STS)
+    ./assess 10000000
+    ```
+
+```
+
 ```
 ### Interoperability с OpenSSL
 ECB:
@@ -79,3 +105,4 @@ IV_HEX=$(xxd -p iv.bin | tr -d '\n')
 openssl enc -aes-128-cbc -d -K $KEY -iv $IV_HEX
 -in cbc_cipher_only.bin -out from_cryptocore_cbc.txt
 ```
+
