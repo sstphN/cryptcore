@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 
@@ -16,21 +17,38 @@ func main() {
 		os.Exit(1)
 	}
 
-	// читаем входной файл как бинарь
+	var key []byte
+	var keyHex string
+
+	// Sprint 3: Генерация ключа, если он не предоставлен при шифровании
+	if opts.Encrypt && opts.KeyHex == "" {
+		newKey, err := crypto.GenerateRandomBytes(16)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error generating key:", err)
+			os.Exit(1)
+		}
+		key = newKey
+		keyHex = hex.EncodeToString(newKey)
+		// Печать ключа в stdout, как требует KEY-2
+		fmt.Printf("[INFO] Generated random key: %s\n", keyHex)
+	} else {
+		keyHex = opts.KeyHex
+	}
+
+	// Парсинг ключа (либо пользовательского, либо сгенерированного)
+	key, err = crypto.ParseHexKey(keyHex)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "invalid key:", err)
+		os.Exit(1)
+	}
+
 	inputData, err := fs.ReadAll(opts.InputPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error reading input file:", err)
 		os.Exit(1)
 	}
 
-	key, err := crypto.ParseHexKey(opts.KeyHex)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "invalid key:", err)
-		os.Exit(1)
-	}
-
 	var outputData []byte
-
 	switch opts.Mode {
 	case "ecb":
 		if opts.Encrypt {
@@ -45,8 +63,7 @@ func main() {
 			outputData, err = crypto.DecryptWithIVMode(opts.Mode, key, inputData, opts.IVHex, opts.UseIVFlag)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "unsupported mode:", opts.Mode)
-		os.Exit(1)
+		err = fmt.Errorf("unsupported mode: %s", opts.Mode)
 	}
 
 	if err != nil {

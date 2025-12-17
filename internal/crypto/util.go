@@ -2,10 +2,8 @@ package crypto
 
 import (
 	"crypto/aes"
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"io"
 )
 
 const BlockSize = aes.BlockSize // 16 bytes for AES-128
@@ -32,12 +30,9 @@ func ParseHexIV(hexIV string) ([]byte, error) {
 	return iv, nil
 }
 
+// GenerateRandomIV теперь использует наш новый модуль CSPRNG
 func GenerateRandomIV() ([]byte, error) {
-	iv := make([]byte, BlockSize)
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
-		return nil, err
-	}
-	return iv, nil
+	return GenerateRandomBytes(BlockSize)
 }
 
 func xorBlocks(dst, a, b []byte) {
