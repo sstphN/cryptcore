@@ -4,3 +4,8 @@ bin/
 *_cipher_only.bin
 *_iv.bin
 plain.txt
+empty.txt
+hello.txt
+hello.txt.enc
+*.hash
+test_abc.txt
