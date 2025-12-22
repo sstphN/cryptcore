@@ -21,6 +21,10 @@ go.mod
 ```
 ## Использование
 
+cryptocore <args>               # Encryption/Decryption
+cryptocore dgst ...             # Hashing
+cryptocore hmac ...             # HMAC
+
 ### Шифрование (с генерацией ключа)
 
 Если `--key` не указан, ключ генерируется автоматически и выводится в stdout.
@@ -104,5 +108,24 @@ IV_HEX=$(xxd -p iv.bin | tr -d '\n')
 
 openssl enc -aes-128-cbc -d -K $KEY -iv $IV_HEX
 -in cbc_cipher_only.bin -out from_cryptocore_cbc.txt
+```
+## Хеширование (dgst)
+Поддержка алгоритмов SHA-256 (собственная реализация) и SHA-512.
+
+### Использование
+```
+bin/cryptocore dgst --algorithm <sha256|sha512> --input <файл>
+bin/cryptocore dgst --algorithm sha256 --input plain.txt
+# Вывод: <hash>  plain.txt
+```
+HMAC (hmac)
+Вычисление кодов аутентификации сообщений (HMAC) на базе SHA-256 и SHA-512.
+
+Использование
+```
+bin/cryptocore hmac --algorithm <sha256|sha512> --key <ключ> --input <файл>
+
+bin/cryptocore hmac --algorithm sha256 --key 0b0b0b0b --input data.txt
+# Вывод: <hmac_hash>  data.txt
 ```
 
