@@ -12,7 +12,7 @@ import (
 	"cryptcore/internal/crypto"
 	"cryptcore/internal/fs"
 	myhash "cryptcore/internal/hash"
-	"cryptcore/internal/kdf" // Новый импорт
+	"cryptcore/internal/kdf"
 )
 
 func main() {
@@ -28,8 +28,11 @@ func main() {
 		handleDgst(os.Args[2:])
 	case "hmac":
 		cli.HMACCmd(os.Args[2:])
+	case "derive":
+		handleDerive(os.Args[2:])
 	default:
-		if command[0] == '-' {
+		// backward compatibility: encryption/decryption через флаги
+		if len(command) > 0 && command[0] == '-' {
 			handleEncryption(os.Args[1:])
 		} else {
 			fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
@@ -53,28 +56,36 @@ func handleDgst(args []string) {
 	}
 	defer f.Close()
 
-	var hasher io.Writer
-	var sumCalc func() []byte
+	var hashBytes []byte
 
-	if opts.Algorithm == "sha256" {
-		h := myhash.NewSHA256()
-		hasher = h
-		sumCalc = func() []byte { return h.Sum(nil) }
-	} else if opts.Algorithm == "sha512" {
-		h := sha512.New()
-		hasher = h
-		sumCalc = func() []byte { return h.Sum(nil) }
+	if opts.Algorithm == "par-sha256" {
+		hashBytes, err = myhash.ParallelSHA256(f)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error hashing file (parallel): %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		var hasher hash.Hash
+
+		switch opts.Algorithm {
+		case "sha256":
+			hasher = myhash.NewSHA256()
+		case "sha512":
+			hasher = sha512.New()
+		default:
+			fmt.Fprintf(os.Stderr, "unsupported algorithm: %s\n", opts.Algorithm)
+			os.Exit(1)
+		}
+
+		buf := make([]byte, 32*1024)
+		if _, err := io.CopyBuffer(hasher, f, buf); err != nil {
+			fmt.Fprintf(os.Stderr, "error hashing file: %v\n", err)
+			os.Exit(1)
+		}
+		hashBytes = hasher.Sum(nil)
 	}
 
-	buf := make([]byte, 32*1024)
-	if _, err := io.CopyBuffer(hasher, f, buf); err != nil {
-		fmt.Fprintf(os.Stderr, "error hashing file: %v\n", err)
-		os.Exit(1)
-	}
-
-	hashBytes := sumCalc()
 	hashStr := hex.EncodeToString(hashBytes)
-
 	output := fmt.Sprintf("%s  %s\n", hashStr, opts.InputPath)
 
 	if opts.OutputPath != "" {
@@ -85,6 +96,52 @@ func handleDgst(args []string) {
 	} else {
 		fmt.Print(output)
 	}
+}
+
+// Sprint 7 (m7.html): cryptocore derive --password ... [--salt hex] [--iterations N] [--length L] --algorithm pbkdf2 [--output file]
+// stdout: KEY_HEX SALT_HEX
+func handleDerive(args []string) {
+	opts, err := cli.ParseDeriveArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "derive error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// salt: либо задан, либо генерим 16 байт (как требует m7)
+	var salt []byte
+	if opts.SaltHex != "" {
+		salt, err = hex.DecodeString(opts.SaltHex)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invalid salt hex: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		salt, err = crypto.GenerateRandomBytes(16)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error generating salt: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// PBKDF2-HMAC-SHA256 (ваша реализация kdf.Key, sha256 = myhash.NewSHA256)
+	pass := []byte(opts.Password)
+	key := kdf.Key(func() hash.Hash { return myhash.NewSHA256() }, pass, salt, opts.Iterations, opts.Length)
+
+	// should: очистить пароль из памяти
+	for i := range pass {
+		pass[i] = 0
+	}
+
+	// optional --output: писать raw bytes ключа
+	if opts.OutputPath != "" {
+		if err := fs.WriteAll(opts.OutputPath, key); err != nil {
+			fmt.Fprintf(os.Stderr, "error writing key to file: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// stdout: KEY_HEX SALT_HEX
+	fmt.Printf("%s  %s\n", hex.EncodeToString(key), hex.EncodeToString(salt))
 }
 
 func handleEncryption(args []string) {
@@ -103,37 +160,29 @@ func handleEncryption(args []string) {
 	var key []byte
 	var salt []byte
 
-	// Логика работы с ключами и паролями
 	if opts.Password != "" {
-		// --- Режим работы с паролем (PBKDF2) ---
+		// PBKDF2-режим для шифрования/расшифрования (как у тебя было)
 		if opts.Encrypt {
-			// 1. Генерируем случайную соль (16 байт)
 			salt, err = crypto.GenerateRandomBytes(16)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "error generating salt:", err)
 				os.Exit(1)
 			}
-			// 2. Генерируем ключ из пароля
 			key = kdf.Key(func() hash.Hash { return myhash.NewSHA256() }, []byte(opts.Password), salt, 4096, 16)
-
 			fmt.Printf("[INFO] Using PBKDF2 with generated salt: %x\n", salt)
 		} else {
-			// Decrypt
-			// 1. Соль должна быть в начале файла (первые 16 байт)
 			if len(inputData) < 16 {
 				fmt.Fprintln(os.Stderr, "error: input file too short to contain salt")
 				os.Exit(1)
 			}
 			salt = inputData[:16]
-			inputData = inputData[16:] // Отрезаем соль, оставляем только шифротекст
+			inputData = inputData[16:]
 
-			// 2. Восстанавливаем ключ
 			key = kdf.Key(func() hash.Hash { return myhash.NewSHA256() }, []byte(opts.Password), salt, 4096, 16)
-
 			fmt.Printf("[INFO] Using PBKDF2 with extracted salt: %x\n", salt)
 		}
 	} else {
-		// --- Режим работы с raw-ключом (Sprint 1-3) ---
+		// raw key
 		var keyHex string
 		if opts.Encrypt && opts.KeyHex == "" {
 			newKey, err := crypto.GenerateRandomBytes(16)
@@ -177,7 +226,7 @@ func handleEncryption(args []string) {
 		os.Exit(1)
 	}
 
-	// Если шифровали с паролем, нужно добавить соль в начало файла
+	// если encrypt+password => соль в начало файла
 	if opts.Password != "" && opts.Encrypt {
 		finalOutput := make([]byte, 0, len(salt)+len(outputData))
 		finalOutput = append(finalOutput, salt...)
@@ -202,7 +251,8 @@ func handleEncryption(args []string) {
 
 func printHelp() {
 	fmt.Println("Usage:")
-	fmt.Println("  cryptocore <args>               # Encryption/Decryption")
-	fmt.Println("  cryptocore dgst ...             # Hashing")
-	fmt.Println("  cryptocore hmac ...             # HMAC")
+	fmt.Println("  cryptocore <args>              # Encryption/Decryption")
+	fmt.Println("  cryptocore dgst ...            # Hashing")
+	fmt.Println("  cryptocore hmac ...            # HMAC")
+	fmt.Println("  cryptocore derive ...          # Key derivation (PBKDF2)")
 }

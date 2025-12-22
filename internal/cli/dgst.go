@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"flag"
+	"fmt"
 )
 
 type DgstOptions struct {
@@ -13,24 +14,27 @@ type DgstOptions struct {
 
 func ParseDgstArgs(args []string) (*DgstOptions, error) {
 	fs := flag.NewFlagSet("dgst", flag.ContinueOnError)
-	algo := fs.String("algorithm", "", "hash algorithm (sha256, sha512)")
-	input := fs.String("input", "", "input file path")
-	output := fs.String("output", "", "output file path (optional)")
+	algorithm := fs.String("algorithm", "sha256", "Hash algorithm (sha256, par-sha256, sha512)")
+	input := fs.String("input", "", "Input file path")
+	output := fs.String("output", "", "Output file path (optional)")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
 
-	opts := &DgstOptions{
-		Algorithm:  *algo,
-		InputPath:  *input,
-		OutputPath: *output,
+	if *input == "" {
+		return nil, fmt.Errorf("input file is required")
 	}
 
-	if err := validateDgstOptions(opts); err != nil {
-		return nil, err
+	if *algorithm != "sha256" && *algorithm != "sha512" && *algorithm != "par-sha256" {
+		return nil, fmt.Errorf("unsupported algorithm: must be sha256, par-sha256 or sha512")
 	}
-	return opts, nil
+
+	return &DgstOptions{
+		Algorithm:  *algorithm,
+		InputPath:  *input,
+		OutputPath: *output,
+	}, nil
 }
 
 func validateDgstOptions(o *DgstOptions) error {
