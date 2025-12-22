@@ -24,11 +24,10 @@ func main() {
 	switch command {
 	case "dgst":
 		handleDgst(os.Args[2:])
+	case "hmac":
+		cli.HMACCmd(os.Args[2:])
 	default:
-		// Если команда не "dgst", считаем, что это старый режим шифрования (Sprint 1-3)
-		// Но так как флаги парсятся пакетом flag, который ожидает аргументы,
-		// нужно проверить, не начинается ли команда с тире (флага).
-		// Если первый аргумент это флаг (например --algorithm), значит это режим шифрования.
+		// Если команда не "dgst" и не "hmac", проверяем флаги для старого режима
 		if command[0] == '-' {
 			handleEncryption(os.Args[1:])
 		} else {
@@ -60,16 +59,16 @@ func handleDgst(args []string) {
 		// Используем НАШУ реализацию с нуля
 		h := myhash.NewSHA256()
 		hasher = h
-		sumCalc = h.Sum
+		sumCalc = func() []byte { return h.Sum(nil) }
 	} else if opts.Algorithm == "sha512" {
-		// Используем стандартную библиотеку как второй алгоритм
+		// Используем стандартную библиотеку
 		h := sha512.New()
 		hasher = h
 		sumCalc = func() []byte { return h.Sum(nil) }
 	}
 
-	// Читаем файл кусками (chunked processing)
-	buf := make([]byte, 32*1024) // 32KB buffer
+	// Читаем файл кусками
+	buf := make([]byte, 32*1024)
 	if _, err := io.CopyBuffer(hasher, f, buf); err != nil {
 		fmt.Fprintf(os.Stderr, "error hashing file: %v\n", err)
 		os.Exit(1)
@@ -91,10 +90,6 @@ func handleDgst(args []string) {
 }
 
 func handleEncryption(args []string) {
-	// Вставь сюда ВЕСЬ код из main() спринта 3
-	// (начиная с opts, err := cli.ParseArgs(args) и до конца)
-	// Для краткости я не дублирую его здесь, но ты должен перенести тело старого main сюда.
-
 	opts, err := cli.ParseArgs(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -171,4 +166,5 @@ func printHelp() {
 	fmt.Println("Usage:")
 	fmt.Println("  cryptocore <args>               # Encryption/Decryption (Sprint 1-3)")
 	fmt.Println("  cryptocore dgst --algorithm <algo> --input <file> # Hashing (Sprint 4)")
+	fmt.Println("  cryptocore hmac --algorithm <algo> --key <key> --input <file> # HMAC (Sprint 5)")
 }
