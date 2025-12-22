@@ -17,12 +17,12 @@ var k = [64]uint32{
 	0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
 }
 
-// DigestSHA256 implements hash.Hash
+// DigestSHA256 struct
 type DigestSHA256 struct {
 	h   [8]uint32
 	x   [64]byte
 	nx  int
-	len uint64 // bytes
+	len uint64
 }
 
 func NewSHA256() *DigestSHA256 {
@@ -43,7 +43,6 @@ func (d *DigestSHA256) Reset() {
 func (d *DigestSHA256) Write(p []byte) (nn int, err error) {
 	nn = len(p)
 	d.len += uint64(nn)
-
 	for _, c := range p {
 		d.x[d.nx] = c
 		d.nx++
@@ -55,31 +54,24 @@ func (d *DigestSHA256) Write(p []byte) (nn int, err error) {
 	return nn, nil
 }
 
-// Sum appends the current hash to b and returns the resulting slice.
 func (d *DigestSHA256) Sum(b []byte) []byte {
-	d0 := *d
-	sum := d0.checkSum()
-	return append(b, sum[:]...)
+	d0 := *d // Копируем состояние, чтобы не портить текущее
+	hash := d0.checkSum()
+	return append(b, hash[:]...)
 }
-
-func (d *DigestSHA256) Size() int      { return 32 }
-func (d *DigestSHA256) BlockSize() int { return 64 }
 
 func (d *DigestSHA256) checkSum() [32]byte {
 	lenBits := d.len << 3
-
 	d.x[d.nx] = 0x80
 	for i := d.nx + 1; i < 64; i++ {
 		d.x[i] = 0
 	}
-
 	if d.nx >= 56 {
 		d.processBlock(d.x[:])
 		for i := 0; i < 64; i++ {
 			d.x[i] = 0
 		}
 	}
-
 	binary.BigEndian.PutUint64(d.x[56:], lenBits)
 	d.processBlock(d.x[:])
 
@@ -108,32 +100,42 @@ func (d *DigestSHA256) processBlock(p []byte) {
 		w[i] = w[i-16] + s0 + w[i-7] + s1
 	}
 
-	a, b, c, dd, e, f, g, h := d.h[0], d.h[1], d.h[2], d.h[3], d.h[4], d.h[5], d.h[6], d.h[7]
+	h0, h1, h2, h3, h4, h5, h6, h7 := d.h[0], d.h[1], d.h[2], d.h[3], d.h[4], d.h[5], d.h[6], d.h[7]
 
 	for i := 0; i < 64; i++ {
-		ch := (e & f) ^ (^e & g)
-		maj := (a & b) ^ (a & c) ^ (b & c)
-		s0 := bits.RotateLeft32(a, -2) ^ bits.RotateLeft32(a, -13) ^ bits.RotateLeft32(a, -22)
-		s1 := bits.RotateLeft32(e, -6) ^ bits.RotateLeft32(e, -11) ^ bits.RotateLeft32(e, -25)
-		t1 := h + s1 + ch + k[i] + w[i]
+		ch := (h4 & h5) ^ (^h4 & h6)
+		maj := (h0 & h1) ^ (h0 & h2) ^ (h1 & h2)
+		s0 := bits.RotateLeft32(h0, -2) ^ bits.RotateLeft32(h0, -13) ^ bits.RotateLeft32(h0, -22)
+		s1 := bits.RotateLeft32(h4, -6) ^ bits.RotateLeft32(h4, -11) ^ bits.RotateLeft32(h4, -25)
+		t1 := h7 + s1 + ch + k[i] + w[i]
 		t2 := s0 + maj
 
-		h = g
-		g = f
-		f = e
-		e = dd + t1
-		dd = c
-		c = b
-		b = a
-		a = t1 + t2
+		h7 = h6
+		h6 = h5
+		h5 = h4
+		h4 = h3 + t1
+		h3 = h2
+		h2 = h1
+		h1 = h0
+		h0 = t1 + t2
 	}
 
-	d.h[0] += a
-	d.h[1] += b
-	d.h[2] += c
-	d.h[3] += dd
-	d.h[4] += e
-	d.h[5] += f
-	d.h[6] += g
-	d.h[7] += h
+	d.h[0] += h0
+	d.h[1] += h1
+	d.h[2] += h2
+	d.h[3] += h3
+	d.h[4] += h4
+	d.h[5] += h5
+	d.h[6] += h6
+	d.h[7] += h7
+}
+
+// Size returns the number of bytes Sum will return.
+func (d *DigestSHA256) Size() int {
+	return 32
+}
+
+// BlockSize returns the hash's underlying block size.
+func (d *DigestSHA256) BlockSize() int {
+	return 64
 }

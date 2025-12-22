@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"flag"
+	"fmt"
 )
 
 type Options struct {
@@ -15,6 +16,7 @@ type Options struct {
 	OutputPath string
 	IVHex      string
 	UseIVFlag  bool
+	Password   string
 }
 
 func ParseArgs(args []string) (*Options, error) {
@@ -27,6 +29,7 @@ func ParseArgs(args []string) (*Options, error) {
 	input := fs.String("input", "", "input file path")
 	output := fs.String("output", "", "output file path")
 	iv := fs.String("iv", "", "hex-encoded 16-byte IV (for decryption in CBC/CFB/OFB/CTR)")
+	password := fs.String("password", "", "Password for key derivation")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -42,6 +45,12 @@ func ParseArgs(args []string) (*Options, error) {
 		OutputPath: *output,
 		IVHex:      *iv,
 		UseIVFlag:  *iv != "",
+		Password:   *password,
+	}
+
+	// Валидация: Нельзя указывать и --key, и --password одновременно.
+	if opts.KeyHex != "" && opts.Password != "" {
+		return nil, fmt.Errorf("cannot use both --key and --password")
 	}
 
 	if err := validateOptions(opts); err != nil {
@@ -64,15 +73,17 @@ func validateOptions(o *Options) error {
 		return errors.New("--input is required")
 	}
 
-	// Sprint 3: --key обязателен только для --decrypt
-	if o.Decrypt && o.KeyHex == "" {
-		return errors.New("--key is mandatory for decryption")
+	// Ключ обязателен только если нет пароля и мы расшифровываем (или если шифруем и не хотим генерить)
+	// Для Decrypt нужен либо KeyHex, либо Password
+	if o.Decrypt && o.KeyHex == "" && o.Password == "" {
+		return errors.New("either --key or --password is mandatory for decryption")
 	}
 
 	// IV-логика
 	if o.Mode == "ecb" && o.UseIVFlag {
 		return errors.New("--iv is not allowed in ECB mode")
 	}
+	// При шифровании с паролем IV тоже генерируется, но это handled in main
 	if o.Mode != "ecb" && o.Encrypt && o.UseIVFlag {
 		return errors.New("--iv must not be provided in encryption mode; IV is generated automatically")
 	}
